@@ -14,7 +14,10 @@ bcrypt==4.2.1
 slowapi==0.1.9              # rate limiting
 
 # --- Database ---
-motor==3.6.0                # async MongoDB driver
+motor==3.7.1                # async MongoDB driver
+pymongo>=4.15,<5.0          # explicit newer pin -- older pymongo (via older motor) has
+                             # a known TLS handshake issue (TLSV1_ALERT_INTERNAL_ERROR)
+                             # against MongoDB Atlas
 
 # --- RAG / LLM ---
 chromadb==0.5.23
