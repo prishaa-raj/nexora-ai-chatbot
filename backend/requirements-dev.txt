@@ -1,0 +1,7 @@
+# Install alongside requirements.txt to run the test suite:
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   pytest -v
+
+pytest==8.3.4
+httpx==0.28.1              # required by fastapi.testclient.TestClient
+mongomock-motor==0.0.34    # in-memory Motor-compatible MongoDB for tests -- no real Mongo needed

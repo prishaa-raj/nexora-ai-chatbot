@@ -1,0 +1,36 @@
+# --- Web framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20   # required for Form()/File() uploads
+
+# --- Config / validation ---
+pydantic==2.10.4
+pydantic-settings==2.7.1
+email-validator==2.2.0     # required by pydantic's EmailStr
+
+# --- Auth / security ---
+python-jose[cryptography]==3.3.0
+bcrypt==4.2.1
+slowapi==0.1.9              # rate limiting
+
+# --- Database ---
+motor==3.6.0                # async MongoDB driver
+
+# --- RAG / LLM ---
+chromadb==0.5.23
+sentence-transformers==3.3.1
+# NOTE: these are minimum-version ranges, not exact pins, on purpose.
+# LangChain's sub-packages (core/text-splitters/google-genai/openai/groq)
+# release independently and each requires a minimum langchain-core version
+# that creeps up over time. Exact-pinning langchain-core while adding a new
+# provider package (e.g. langchain-groq) WILL eventually produce a
+# ResolutionImpossible error, because the new package needs a newer
+# langchain-core than the old exact pin allows. Ranges let pip's resolver
+# pick one mutually-compatible set instead of you having to hand-solve the
+# version matrix yourself.
+langchain-core>=0.3.33,<0.4.0
+langchain-text-splitters>=0.3.5,<0.4.0
+langchain-google-genai>=2.0.7,<3.0.0
+langchain-openai>=0.2.14,<0.3.0
+langchain-groq>=0.2.4,<0.3.0
+pypdf==5.1.0

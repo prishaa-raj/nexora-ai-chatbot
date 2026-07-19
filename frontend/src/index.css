@@ -1,0 +1,64 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", ui-sans-serif, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* Surfaces */
+  --color-paper: #F5F7FA;
+  --color-surface: #EEF1F6;
+  --color-card: #FFFFFF;
+  --color-line: #E2E6EC;
+
+  /* Text */
+  --color-ink: #16202A;
+  --color-ink-soft: #5B6672;
+  --color-ink-faint: #88919B;
+
+  /* Primary accent -- "Hub Blue" */
+  --color-hub: #3452E1;
+  --color-hub-soft: #EAEFFD;
+
+  /* Status system -- mirrors the physical hub's LED states from the product's
+     own troubleshooting doc: solid blue = connected, amber = resetting,
+     red = error. Reused everywhere the UI needs to say "what state is this in". */
+  --color-status-green: #059669;
+  --color-status-green-soft: #E7F6F0;
+  --color-status-amber: #D97706;
+  --color-status-amber-soft: #FDF3E2;
+  --color-status-red: #DC2626;
+  --color-status-red-soft: #FBEAEA;
+
+  /* Hover-state variants (used instead of relying on alpha over a light bg) */
+  --color-hub-dark: #2A3FB8;
+  --color-status-green-dark: #047857;
+  --color-status-red-dark: #B91C1C;
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out forwards;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.status-dot-live {
+  animation: dotPulse 2.2s ease-in-out infinite;
+}
