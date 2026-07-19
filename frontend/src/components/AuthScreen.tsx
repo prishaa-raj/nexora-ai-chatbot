@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Radio, MessageSquare, BookOpen, BarChart3, Ticket } from 'lucide-react';
+import { MessageSquare, BookOpen, BarChart3, Ticket } from 'lucide-react';
 import { apiJson } from '../api';
 
 interface AuthScreenProps {
@@ -43,7 +43,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
       <div className="max-w-md w-full mx-auto space-y-7 bg-card p-8 rounded-2xl border border-line mt-8 shadow-sm">
         <div>
           <div className="flex items-center justify-center gap-2.5 mb-5">
-            <Radio className="w-5 h-5 text-hub" strokeWidth={2.25} />
+            <img src="/logo.png" alt="Nexora Technologies" className="w-8 h-8 rounded-full object-cover" />
             <span className="font-display font-semibold text-lg tracking-tight text-ink">
               SmartHelp Portal
             </span>

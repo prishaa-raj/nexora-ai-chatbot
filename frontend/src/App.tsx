@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Radio, ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import AuthScreen from './components/AuthScreen';
 import CustomerPortal from './components/CustomerPortal';
 import AdminDashboard from './components/AdminDashboard';
@@ -80,7 +80,7 @@ export default function App() {
       <header className="bg-card border-b border-line h-16 px-6 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <Radio className="w-5 h-5 text-hub" strokeWidth={2.25} />
+            <img src="/logo.png" alt="Nexora Technologies" className="w-8 h-8 rounded-full object-cover" />
             <span className="font-display font-semibold text-ink text-base tracking-tight">
               SmartHelp
             </span>
