@@ -10,11 +10,11 @@ embedding API instead means the backend process itself stays small --
 nothing heavy loads locally at all.
 
 Uses your existing GEMINI_API_KEY -- no new key/account needed. Note: Gemini
-meters embedding calls on a separate quota bucket from the chat model
-(gemini-2.0-flash), so this should keep working even during the chat-model
-quota issue mentioned in chain.py -- but if uploads start failing with a
-quota-style error, that assumption was wrong and this should switch to
-OpenAI's embedding API instead (a small change, same shape).
+meters embedding calls (gemini-embedding-001) on a separate quota bucket from
+the chat model (gemini-2.0-flash), so this should keep working even during
+the chat-model quota issue mentioned in chain.py -- but if uploads start
+failing with a quota-style error, that assumption was wrong and this should
+switch to OpenAI's embedding API instead (a small change, same shape).
 """
 from functools import lru_cache
 
