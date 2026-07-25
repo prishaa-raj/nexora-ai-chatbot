@@ -94,6 +94,6 @@ app.include_router(admin.router)
 app.include_router(notifications.router)
 
 
-@app.get("/api/health")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 async def health_check():
     return {"status": "ok"}

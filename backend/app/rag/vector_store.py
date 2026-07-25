@@ -25,14 +25,29 @@ def get_collection():
 
 
 def add_chunks(document_id: str, document_name: str, chunks: list[str]) -> int:
-    """Embed and upsert chunks for a document. Returns number of chunks indexed."""
+    """Embed and upsert chunks for a document. Returns number of chunks indexed.
+
+    Processes in small batches rather than embedding every chunk in one huge
+    call -- a large document (dozens+ of chunks) embedded all at once holds
+    every chunk's tokens/vectors in memory simultaneously, which is exactly
+    what tipped a 512MB Render instance into an actual OOM kill when the
+    full real knowledge base (not the old tiny demo docs) got embedded in
+    one shot during startup seeding. Smaller batches mean the total work is
+    the same, but peak memory at any one moment is much lower.
+    """
     if not chunks:
         return 0
     collection = get_collection()
-    embeddings = embed_texts(chunks)
-    ids = [f"{document_id}-chunk-{i}" for i in range(len(chunks))]
-    metadatas = [{"document_id": document_id, "document_name": document_name, "chunk_index": i} for i in range(len(chunks))]
-    collection.upsert(ids=ids, embeddings=embeddings, documents=chunks, metadatas=metadatas)
+    batch_size = 16
+    for start in range(0, len(chunks), batch_size):
+        batch = chunks[start:start + batch_size]
+        embeddings = embed_texts(batch)
+        ids = [f"{document_id}-chunk-{start + i}" for i in range(len(batch))]
+        metadatas = [
+            {"document_id": document_id, "document_name": document_name, "chunk_index": start + i}
+            for i in range(len(batch))
+        ]
+        collection.upsert(ids=ids, embeddings=embeddings, documents=batch, metadatas=metadatas)
     return len(chunks)
 
 
