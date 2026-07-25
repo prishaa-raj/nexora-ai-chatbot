@@ -21,7 +21,10 @@ pymongo>=4.15,<5.0          # explicit newer pin -- older pymongo (via older mot
 
 # --- RAG / LLM ---
 chromadb==0.5.23
-sentence-transformers==3.3.1
+# NOTE: sentence-transformers/torch removed -- embeddings now call Gemini's
+# hosted embedding API instead of loading a local model. That local model
+# (plus torch) was too heavy for a 512MB Render instance and was crashing
+# the worker (OOM) during real PDF uploads.
 # NOTE: these are minimum-version ranges, not exact pins, on purpose.
 # LangChain's sub-packages (core/text-splitters/google-genai/openai/groq)
 # release independently and each requires a minimum langchain-core version

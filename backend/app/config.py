@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.3-70b-versatile"  
      # or "llama-3.1-8b-instant" for speed
     # Embeddings
-    embedding_model_name: str = "all-MiniLM-L6-v2"
+    embedding_model_name: str = "models/text-embedding-004"
 
     # ChromaDB
     chroma_persist_dir: str = "./chroma_data"
