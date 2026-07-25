@@ -1,10 +1,5 @@
 """
-LLM orchestration via LangChain. Groq is the primary model (free tier, no
-card required -- see console.groq.com) since it responds fastest and has no
-billing/quota blockers. Gemini and OpenAI are kept as fallbacks in case
-their quota/billing gets sorted out later -- but they are tried AFTER Groq
-so a healthy provider always answers first instead of the request waiting
-on two dead providers' retry/backoff cycles before ever reaching Groq.
+LLM orchestration via LangChain. Groq only -- no Gemini/OpenAI fallback.
 This implements Module 4 (AI Chat Engine) and Module 5 (RAG).
 """
 import logging
@@ -44,7 +39,7 @@ LANGUAGE_NAMES = {
 
 
 class FailureReason(str, Enum):
-    """Why an LLM provider call failed, so callers/monitoring can react
+    """Why the Groq call failed, so callers/monitoring can react
     differently instead of getting the same generic string for everything."""
     NOT_CONFIGURED = "not_configured"   # no API key set at all
     QUOTA_EXCEEDED = "quota_exceeded"   # billing/quota/rate-limit (429-family)
@@ -53,9 +48,8 @@ class FailureReason(str, Enum):
 
 
 def _classify_exception(exc: Exception) -> FailureReason:
-    """Best-effort classification without hard-importing every provider's
-    exception classes (keeps this file working even if a provider package
-    isn't installed). Matches on exception class name + message text."""
+    """Best-effort classification, matched on exception class name + message
+    text rather than importing Groq's specific exception classes."""
     name = type(exc).__name__
     msg = str(exc).lower()
 
@@ -74,25 +68,6 @@ def _classify_exception(exc: Exception) -> FailureReason:
     if any(marker in haystack for marker in auth_markers):
         return FailureReason.AUTH_ERROR
     return FailureReason.OTHER
-
-
-@lru_cache(maxsize=1)
-def _get_gemini_llm():
-    if not settings.gemini_api_key:
-        return None
-    from langchain_google_genai import ChatGoogleGenerativeAI
-    return ChatGoogleGenerativeAI(
-        model=settings.gemini_model,
-        google_api_key=settings.gemini_api_key,
-    )
-
-
-@lru_cache(maxsize=1)
-def _get_openai_llm():
-    if not settings.openai_api_key:
-        return None
-    from langchain_openai import ChatOpenAI
-    return ChatOpenAI(model=settings.openai_model, api_key=settings.openai_api_key)
 
 
 @lru_cache(maxsize=1)
@@ -115,7 +90,7 @@ def _build_messages(system_prompt: str, chat_history: list[dict], user_text: str
     return messages
 
 
-# Messages shown to the end user, keyed by why every provider failed.
+# Messages shown to the end user, keyed by why Groq failed.
 _FALLBACK_MESSAGES = {
     FailureReason.QUOTA_EXCEEDED: (
         "The AI assistant has hit its usage limit for now. Your message has "
@@ -149,10 +124,8 @@ def generate_answer(
     """Returns (reply_text, used_ai, failure_reason).
 
     failure_reason is None when used_ai is True. When used_ai is False, it
-    tells the caller (API layer / monitoring) WHY every provider failed, so
-    e.g. quota errors can trigger an alert distinct from auth errors, and
-    the frontend/ops dashboard doesn't have to grep uvicorn logs to tell
-    "we're out of money" apart from "the key is wrong"."""
+    tells the caller (API layer / monitoring) WHY Groq failed, so e.g. quota
+    errors can trigger an alert distinct from auth errors."""
     lang_name = LANGUAGE_NAMES.get(language, "English")
     full_system_prompt = (
         f"{system_prompt}\n\n"
@@ -161,44 +134,18 @@ def generate_answer(
     )
     messages = _build_messages(full_system_prompt, chat_history, user_text)
 
-    any_provider_configured = False
-    worst_reason: FailureReason | None = None  # last non-None reason seen
+    llm = _get_groq_llm()
+    if llm is None:
+        return _FALLBACK_MESSAGES[FailureReason.NOT_CONFIGURED], False, FailureReason.NOT_CONFIGURED
 
-    for get_llm in (_get_groq_llm, _get_gemini_llm, _get_openai_llm):
-        llm = get_llm()
-        if llm is None:
-            continue
-        any_provider_configured = True
-        try:
-            # ChatGoogleGenerativeAI (unlike ChatOpenAI) doesn't accept a
-            # top-level `temperature` kwarg at call time -- it must be
-            # nested inside `generation_config`, or the raw google-genai
-            # client rejects it with
-            # "generate_content() got an unexpected keyword argument
-            # 'temperature'". OpenAI's and Groq's clients (both
-            # OpenAI-compatible) are fine with the top-level form.
-            if get_llm is _get_gemini_llm:
-                llm_with_temp = llm.bind(generation_config={"temperature": temperature})
-            else:
-                llm_with_temp = llm.bind(temperature=temperature)
-            response = llm_with_temp.invoke(messages)
-            return response.content, True, None
-        except Exception as exc:
-            reason = _classify_exception(exc)
-            worst_reason = reason
-            logger.exception(
-                "LLM provider call failed (%s) [%s]",
-                getattr(get_llm, "__name__", "unknown"),
-                reason.value,
-            )
-            continue
-
-    if any_provider_configured:
-        reason = worst_reason or FailureReason.OTHER
+    try:
+        llm_with_temp = llm.bind(temperature=temperature)
+        response = llm_with_temp.invoke(messages)
+        return response.content, True, None
+    except Exception as exc:
+        reason = _classify_exception(exc)
+        logger.exception("Groq call failed [%s]", reason.value)
         return _FALLBACK_MESSAGES[reason], False, reason
-
-    # No key is set at all -- this is a setup issue, not a runtime failure.
-    return _FALLBACK_MESSAGES[FailureReason.NOT_CONFIGURED], False, FailureReason.NOT_CONFIGURED
 
 
 def classify_category(user_text: str) -> str | None:
@@ -206,27 +153,16 @@ def classify_category(user_text: str) -> str | None:
         f'Analyze this user query: "{user_text}". Classify it into exactly one of these '
         f'categories: {", ".join(CATEGORY_OPTIONS)}. Return ONLY the category name.'
     )
-    # Groq first, matching generate_answer() and generate_suggested_question()
-    # -- this was the actual cause of multi-minute delays on new
-    # conversations. Gemini's client retries 429s internally with growing
-    # backoff (2s, 4s, 8s, 16s, 32s...) BEFORE our except/continue ever
-    # gets a chance to move to the next provider. With Gemini's quota
-    # permanently at 0 on the free tier, every single call to it was
-    # eating ~2 minutes of pure retry-and-fail time -- and this function
-    # runs on every new conversation's first 3 messages, blocking the
-    # actual chat reply until it finished failing.
-    for get_llm in (_get_groq_llm, _get_gemini_llm, _get_openai_llm):
-        llm = get_llm()
-        if llm is None:
-            continue
-        try:
-            response = llm.invoke([HumanMessage(content=prompt)])
-            category = response.content.strip().strip('"')
-            if category in CATEGORY_OPTIONS:
-                return category
-        except Exception:
-            logger.exception("classify_category failed (%s)", getattr(get_llm, "__name__", "unknown"))
-            continue
+    llm = _get_groq_llm()
+    if llm is None:
+        return None
+    try:
+        response = llm.invoke([HumanMessage(content=prompt)])
+        category = response.content.strip().strip('"')
+        if category in CATEGORY_OPTIONS:
+            return category
+    except Exception:
+        logger.exception("classify_category failed (groq)")
     return None
 
 
@@ -243,8 +179,8 @@ def generate_suggested_question(document_text: str) -> str | None:
     whatever is currently in the knowledge base -- add a document, its
     question appears; remove it, the question goes with it.
 
-    Returns None if every provider fails; the caller falls back to a
-    generic "Can you tell me about {document name}?" template.
+    Returns None on failure; the caller falls back to a generic
+    "Can you tell me about {document name}?" template.
     """
     snippet = document_text[:2000]  # opening portion is representative enough; keeps the prompt small
     prompt = (
@@ -254,16 +190,13 @@ def generate_suggested_question(document_text: str) -> str | None:
         "that this document directly answers. Return ONLY the question itself -- no "
         "quotation marks, no preamble, under 12 words."
     )
-    for get_llm in (_get_groq_llm, _get_gemini_llm, _get_openai_llm):
-        llm = get_llm()
-        if llm is None:
-            continue
-        try:
-            response = llm.invoke([HumanMessage(content=prompt)])
-            question = response.content.strip().strip('"')
-            if question:
-                return question
-        except Exception:
-            logger.exception("generate_suggested_question failed (%s)", getattr(get_llm, "__name__", "unknown"))
-            continue
-    return None
+    llm = _get_groq_llm()
+    if llm is None:
+        return None
+    try:
+        response = llm.invoke([HumanMessage(content=prompt)])
+        question = response.content.strip().strip('"')
+        return question or None
+    except Exception:
+        logger.exception("generate_suggested_question failed (groq)")
+        return None

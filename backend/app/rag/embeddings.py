@@ -1,47 +1,44 @@
 """
-Embeddings via Google's Gemini embedding API.
+Local embedding model powered by Sentence-Transformers.
+Runs fully on-device (CPU is fine) -- no external embedding API, no API key,
+no billing. Groq has no embeddings endpoint at all (chat/audio/models/
+batches/files/fine-tuning only -- confirmed against their API reference),
+so this is the only genuinely-Groq-only-compatible option: Groq handles
+chat, this handles embeddings locally.
 
-Moved off local Sentence-Transformers/torch on purpose: that model has to be
-loaded into memory (and downloaded on first use) inside the same 512MB
-Render free-tier process as FastAPI + ChromaDB + LangChain, and it was
-crashing the worker mid-request (OOM -> Render silently restarts the
-container) as soon as a real PDF forced it to actually run. Calling an
-embedding API instead means the backend process itself stays small --
-nothing heavy loads locally at all.
-
-Uses your existing GEMINI_API_KEY -- no new key/account needed. Note: Gemini
-meters embedding calls (gemini-embedding-001) on a separate quota bucket from
-the chat model (gemini-2.0-flash), so this should keep working even during
-the chat-model quota issue mentioned in chain.py -- but if uploads start
-failing with a quota-style error, that assumption was wrong and this should
-switch to OpenAI's embedding API instead (a small change, same shape).
+Note: this is the SAME approach the project used originally, before it was
+swapped to a hosted embeddings API. That swap was made because an earlier
+version of this endpoint called embed_texts() directly on the request's
+event loop, which froze the whole (single-worker) process for long enough
+that Render's health check killed it -- easy to mistake for an OOM crash,
+but actually just a blocking-call freeze. That freeze is now fixed at the
+call site (routers/documents.py wraps this in asyncio.to_thread), so a
+local model should no longer trigger it. If this genuinely starts crashing
+the process on large uploads (rather than just running slower), that would
+point to real memory pressure on a 512MB instance -- worth upgrading
+Render's plan, or moving to a smaller model, at that point.
 """
 from functools import lru_cache
 
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from sentence_transformers import SentenceTransformer
 
 from app.config import settings
 
 
-@lru_cache(maxsize=2)
-def _get_embedder(task_type: str) -> GoogleGenerativeAIEmbeddings:
-    # task_type tunes Gemini's embedding output differently for a query vs a
-    # stored document -- passing the right one improves retrieval match
-    # quality over using one generic embedding for both sides.
-    return GoogleGenerativeAIEmbeddings(
-        model=settings.embedding_model_name,
-        google_api_key=settings.gemini_api_key,
-        task_type=task_type,
-    )
+@lru_cache(maxsize=1)
+def get_embedder() -> SentenceTransformer:
+    return SentenceTransformer(settings.embedding_model_name)
 
 
 def embed_text(text: str) -> list[float]:
-    """Embeds a single user QUERY at retrieval/chat time."""
-    return _get_embedder("retrieval_query").embed_query(text)
+    model = get_embedder()
+    vector = model.encode(text, normalize_embeddings=True)
+    return vector.tolist()
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Embeds DOCUMENT chunks at upload / rebuild-index time."""
     if not texts:
         return []
-    return _get_embedder("retrieval_document").embed_documents(texts)
+    model = get_embedder()
+    vectors = model.encode(texts, normalize_embeddings=True)
+    return vectors.tolist()
