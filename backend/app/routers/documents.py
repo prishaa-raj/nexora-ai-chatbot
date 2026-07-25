@@ -1,8 +1,9 @@
 """
 Module 3: Knowledge Base Management
 Handles PDF/text upload, chunking (LangChain splitter), and embedding into
-ChromaDB via Sentence-Transformers.
+ChromaDB via a hosted embedding API.
 """
+import asyncio
 import uuid
 from datetime import datetime, timezone
 
@@ -58,16 +59,32 @@ async def upload_document(
         raise HTTPException(status_code=400, detail="Could not extract any text from the provided document")
 
     doc_id = f"doc-{uuid.uuid4().hex[:12]}"
-    chunks = chunk_text(text)
-    indexed_count = add_chunks(doc_id, name, chunks)
 
-    # Bug fix: suggested-question chips on the customer's empty chat screen
-    # used to be pulled from past chat history, which meant they kept
-    # showing questions that were no longer answerable once a document
-    # was deleted or swapped out. Generating (and caching) one directly
-    # from THIS document's own content means the chip is always honestly
-    # tied to what's actually in the knowledge base right now.
-    suggested_question = generate_suggested_question(text)
+    # Chunking + embedding + the suggested-question LLM call are all
+    # blocking, synchronous calls (network round-trips to Gemini/Groq/etc,
+    # plus local Chroma writes). Running them directly here would freeze
+    # this process's ONE event loop for the whole duration -- fine for a
+    # couple of chunks, but with a real multi-page document (many more
+    # chunks -> many more embedding calls) that freeze can run long enough
+    # that Render's own health check stops getting a response and kills
+    # the instance, well before this request ever gets a chance to finish
+    # or even log anything. asyncio.to_thread() moves this work off the
+    # event loop so the process (and other requests) stay responsive while
+    # it runs.
+    def _process() -> tuple[int, str | None]:
+        chunks = chunk_text(text)
+        indexed = add_chunks(doc_id, name, chunks)
+        # Bug fix: suggested-question chips on the customer's empty chat
+        # screen used to be pulled from past chat history, which meant they
+        # kept showing questions that were no longer answerable once a
+        # document was deleted or swapped out. Generating (and caching) one
+        # directly from THIS document's own content means the chip is
+        # always honestly tied to what's actually in the knowledge base
+        # right now.
+        question = generate_suggested_question(text)
+        return indexed, question
+
+    indexed_count, suggested_question = await asyncio.to_thread(_process)
 
     doc_record = {
         "id": doc_id,
@@ -124,15 +141,22 @@ async def rebuild_index(_: CurrentUser = Depends(require_admin)):
     says exists right now -- nothing orphaned, nothing missing. Safe to
     run any time the two look like they've drifted; it's idempotent.
     """
-    reset_collection()
-
     docs = [doc async for doc in documents_col().find({}, {"_id": 0})]
+
+    def _process() -> list[tuple[str, int]]:
+        reset_collection()
+        results = []
+        for doc in docs:
+            chunks = chunk_text(doc["content"])
+            indexed = add_chunks(doc["id"], doc["name"], chunks)
+            results.append((doc["id"], indexed))
+        return results
+
+    results = await asyncio.to_thread(_process)
     total_chunks = 0
-    for doc in docs:
-        chunks = chunk_text(doc["content"])
-        indexed = add_chunks(doc["id"], doc["name"], chunks)
+    for doc_id, indexed in results:
         total_chunks += indexed
-        await documents_col().update_one({"id": doc["id"]}, {"$set": {"chunkCount": indexed}})
+        await documents_col().update_one({"id": doc_id}, {"$set": {"chunkCount": indexed}})
 
     return {
         "success": True,
